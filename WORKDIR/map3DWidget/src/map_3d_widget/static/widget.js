@@ -275,6 +275,7 @@ function RangeWidget(parent, min, max, selected, callback) {
             });
         });
         sliderForward.addEventListener("click", function (event) {
+            console.log("max " + max + " slider " + slider.value);
             if (max > slider.value) {
                 slider.value++;
                 callback({
@@ -388,7 +389,13 @@ function render({ model, el }) {
     //     });
 
     const data = model.get("data");
+
+    // console.log(JSON.stringify(data));
+
     var selected = model.get("selection") || 0;
+    var extrusionScale = model.get("extrusion");
+
+    console.log(extrusionScale);
     const dataSources = [];
 
     for (const geojson of data) {
@@ -399,8 +406,15 @@ function render({ model, el }) {
             const coords = feature.geometry.coordinates[0];
             for (var i = 0; i < coords.length; i++) {
                 const [lon, lat, ele] = coords[i];
-                coords[i] = [lon, lat, ele * -1000];
+                if (extrusionScale > 0) {
+                    coords[i] = [lon, lat];
+                } else {
+                    coords[i] = [lon, lat, ele * -1000];
+                }
+                //     console.log(coords[i]);
             }
+
+            // simulating some of https://leafletjs.com/reference.html#path-option
             const style = feature.properties.style;
             if (style) {
                 const mappings = [
@@ -419,19 +433,28 @@ function render({ model, el }) {
             }
         }
         const dataSource = Cesium.GeoJsonDataSource.load(geojson)
+
         const show = selected === -1 || dataSources.length == selected;
-        dataSource.then(function (value) {
-            value.show = show;
+        dataSource.then(function (ds) {
+            ds.show = show;
+            // console.log(ds.entities.values);
+            if (extrusionScale > 0) {
+                for (const entity of ds.entities.values) {
+                    entity.polygon.extrudedHeight = entity.properties.participation * extrusionScale
+                }
+            }
         })
 
         dataSources.push(dataSource);
         viewer.dataSources.add(dataSource);
     }
 
+  //  console.log(JSON.stringify(data));
+
     viewer.zoomTo(dataSources[selected]);
 
     if (dataSources.length > 1 && selected > -1) {
-        const updateFunction = new RangeWidget(div, 1, dataSources.length - 1, selected, function (event) {
+        const updateFunction = new RangeWidget(div, 0, dataSources.length - 1, selected, function (event) {
             if (event.value !== selected) {
                 dataSources[selected].then(function (source) {
                     source.show = false;
@@ -440,12 +463,13 @@ function render({ model, el }) {
                 dataSources[selected].then(function (source) {
                     source.show = true;
                 });
-                viewer.zoomTo(dataSources[selected],
-                    new Cesium.HeadingPitchRange(
-                        viewer.scene.camera.heading,
-                        viewer.scene.camera.pitch,
-                        500000
-                    )
+                viewer.zoomTo(dataSources[selected]
+                    // ,
+                    // new Cesium.HeadingPitchRange(
+                    //     viewer.scene.camera.heading,
+                    //     viewer.scene.camera.pitch,
+                    //     500000
+                    // )
                 );
             }
             if (model.get("selection") !== selected) {
@@ -466,6 +490,15 @@ function render({ model, el }) {
     })
 
     el.appendChild(div);
+
+    return function() {
+        console.log("destroy map_3d_widget");
+        while(dataSources.length){
+            dataSources.pop();
+        }
+        viewer.entities.removeAll();
+        viewer.destroy();
+    }
 }
 
 export default { render };
